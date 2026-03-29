@@ -17,7 +17,7 @@ from scipy import stats
 # CONFIG
 # ══════════════════════════════════════════════════════
 T1 = "ZC=F"
-T2 = "CL=F"
+T2 = "BDL.NS"
 LOOKBACK = "20y"
 
 # Core parameters — tuned for 14.5d half-life

@@ -1,0 +1,30 @@
+Full dataset
+    │
+    ├── Holdout (20%) → never touched until final selection
+    │
+    └── Training data (80%)
+            │
+            ├── Create 4–6 expanding window folds
+            │
+            └── For each seed (e.g., 4 seeds):
+                    │
+                    ├── Run Bayesian optimisation (120 trials per seed)
+                    │     ├── Suggest parameters
+                    │     ├── Evaluate on all folds (with pruning)
+                    │     └── Update surrogate model
+                    │
+                    ├── Collect best trial + top‑5 trials (score > 0)
+                    │
+                    └── Store candidates (params, CV score, seed)
+            │
+            ↓
+    All candidates (e.g., 4*(1+5)=24)
+            │
+            ↓
+    Evaluate each candidate on holdout (once, no re‑training)
+            │
+            ↓
+    Select candidate with highest holdout score
+            │
+            ↓
+    Update global PARAMS with those values
