@@ -27,7 +27,7 @@ df           = data_loader_obj.load_data(needs_fx=False)
 df.tail()
 
 
-HOLDOUT_DAYS = 504
+HOLDOUT_DAYS = 756
 df_train     = df.iloc[:-HOLDOUT_DAYS].copy()
 df_holdout   = df.iloc[-HOLDOUT_DAYS:].copy()
 
@@ -40,7 +40,6 @@ beta_train = feature_builder.estimate_hedge_ratio(
 
 # OU equilibrium on beta-adjusted spread
 spread_train = np.log(df_train[T1]) - beta_train * np.log(df_train[T2])
-plt.plot(spread_train)
 ou_mean      = float(spread_train.iloc[:504].mean())
 
 print(f"  Full    : {df.index[0].date()} → {df.index[-1].date()}  ({len(df)}d)")
@@ -128,14 +127,21 @@ print(f"  OU HL   : {ou_hl:.2f} days  (β-adjusted spread)")
 # ─────────────────────────────────────────────
 print("\n── Bayesian Optimisation ──")
 # diagnosis internally estimates beta but we also store it in PARAMS
-best_params = diagnosis_obj.sensitivity_analysis(df_train, ou_hl, n_trials=120, n_seeds=15)
+consensus_params, stability = diagnosis_obj.sensitivity_analysis(
+    df_train,
+    ou_hl=ou_hl,
+    n_trials=300,
+    n_seeds=6,
+    top_k=5,      # optional: holdout for final check
+    verbose=True
+)
 
 # Sync beta into backtest engine (in case it was updated)
-PARAMS.update(best_params)
+PARAMS.update(consensus_params)
 PARAMS['z_entry'] = (PARAMS['z_entry_long'] + PARAMS['z_entry_short']) / 2
 PARAMS['z_exit']  = (PARAMS['z_exit_long']  + PARAMS['z_exit_short'])  / 2
 PARAMS['z_stop']  = (PARAMS['z_stop_long']  + PARAMS['z_stop_short'])  / 2
-PARAMS['beta']    = best_params.get('beta', beta_train)
+PARAMS['beta']    = consensus_params.get('beta', beta_train)
 
 # ─────────────────────────────────────────────
 #  WALK-FORWARD VALIDATION  (train, fixed params)
@@ -321,4 +327,3 @@ else:
                      stat_tr, met_tr, None, PARAMS,
                      wf_pnl=wf_pnl, wf_equity=wf_equity, wf_params_df=fold_df,
                      label="TRAIN")
-

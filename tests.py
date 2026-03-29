@@ -10,21 +10,23 @@ from params import PARAMS
 
 T1       = PARAMS['T1']
 T2       = PARAMS["T2"]
+CAPITAL = 200_000   # must match backtest.TRADE_CAPITAL
 
 data_loader_obj = data_loader()
 feature_builder = features()
 metrics_calc    = metrics()
 diagnosis_obj   = diagnosis()
-backtest_engine = backtest(leverage=5)
+backtest_engine = backtest(leverage=3)
 plotter         = plotting()
 
 # ─────────────────────────────────────────────
 #  LOAD & SPLIT
 # ─────────────────────────────────────────────
 df           = data_loader_obj.load_data(needs_fx=False)
+df.tail()
 
 
-HOLDOUT_DAYS = 504
+HOLDOUT_DAYS = 756
 df_train     = df.iloc[:-HOLDOUT_DAYS].copy()
 df_holdout   = df.iloc[-HOLDOUT_DAYS:].copy()
 
@@ -68,21 +70,21 @@ print(f"  OU HL   : {ou_hl:.2f} days  (β-adjusted spread)")
 # ─────────────────────────────────────────────
 print("\n── Bayesian Optimisation ──")
 # diagnosis internally estimates beta but we also store it in PARAMS
-diagnosis_obj.sensitivity_analysis(df_train, ou_hl, n_trials=120, n_seeds=4)
+consensus_params, stability = diagnosis_obj.sensitivity_analysis(
+    df_train,
+    ou_hl=ou_hl,
+    n_trials=300,
+    n_seeds=6,
+    top_k=5,      # optional: holdout for final check
+    verbose=True
+)
 
 # Sync beta into backtest engine (in case it was updated)
-if 'beta' in PARAMS:
-    beta_train = PARAMS['beta']
-
-print("\n  Params after Bayes:")
-print(f"  {'slow_window':>20} : {PARAMS['slow_window']}")
-print(f"  {'z_entry long/short':>20} : {PARAMS['z_entry_long']:.3f} / {PARAMS['z_entry_short']:.3f}")
-print(f"  {'z_exit  long/short':>20} : {PARAMS['z_exit_long']:.3f} / {PARAMS['z_exit_short']:.3f}")
-print(f"  {'z_stop  long/short':>20} : {PARAMS['z_stop_long']:.3f} / {PARAMS['z_stop_short']:.3f}")
-print(f"  {'z_add':>20} : {PARAMS['z_add']:.3f}")
-print(f"  {'vol_cap':>20} : {PARAMS['vol_cap']:.3f}")
-print(f"  {'max_hold':>20} : {PARAMS['max_hold']}")
-print(f"  {'beta (hedge ratio)':>20} : {beta_train:.4f}")
+PARAMS.update(consensus_params)
+PARAMS['z_entry'] = (PARAMS['z_entry_long'] + PARAMS['z_entry_short']) / 2
+PARAMS['z_exit']  = (PARAMS['z_exit_long']  + PARAMS['z_exit_short'])  / 2
+PARAMS['z_stop']  = (PARAMS['z_stop_long']  + PARAMS['z_stop_short'])  / 2
+PARAMS['beta']    = consensus_params.get('beta', beta_train)
 
 
 def permutation_test(df, PARAMS, beta, ou_mean,

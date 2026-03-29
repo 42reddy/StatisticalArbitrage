@@ -9,7 +9,7 @@ class data_loader():
     def __init__(self):
         self.T1    = PARAMS['T1']
         self.T2    = PARAMS['T2']
-        self.START = PARAMS.get('start', '2010-01-01')
+        self.START = PARAMS.get('start', '2012-01-01')
 
     def load_data(self, needs_fx=False):
         """

@@ -229,19 +229,13 @@ class diagnosis:
         sw_max = max(sw_min + 20, int(HL * 1.5))
         p['slow_window']    = trial.suggest_int(  'slow_window',    sw_min,  sw_max)
 
-        # Medium window is derived to reduce correlated-variable instability:
-        # lock it to ~1.5x the optimized slow window.
+        # Keep medium fixed to 1.5x slow to reduce search noise.
         p['medium_window']  = int(round(p['slow_window'] * 1.5))
-        p['medium_window']  = max(p['medium_window'], sw_min + 5)
 
         p['z_entry_long']   = trial.suggest_float('z_entry_long',   0.8,  2.2)
         p['z_entry_short']  = trial.suggest_float('z_entry_short',  0.8,  2.2)
         p['z_exit_long']    = trial.suggest_float('z_exit_long',    0.05, 0.40)
         p['z_exit_short']   = trial.suggest_float('z_exit_short',   0.05, 0.40)
-
-        p['z_entry'] = (p['z_entry_long']  + p['z_entry_short'])  / 2
-        p['z_exit']  = (p['z_exit_long']   + p['z_exit_short'])   / 2
-        p['z_stop']  = (p['z_stop_long']   + p['z_stop_short'])   / 2
 
         # ── Hard structural constraints (continuous degradation) ──────────
         # Return a score that degrades proportionally to the violation so
@@ -438,12 +432,16 @@ class diagnosis:
         pct_short_pos = (float(np.mean([f['short_wr'] > 0.5 for f in short_folds]))
                          if short_folds else 0.5)
 
+        sharpe_vals = np.array([f['sharpe'] for f in valid], dtype=float)
+        p20_sharpe  = float(np.percentile(sharpe_vals, 20)) if len(sharpe_vals) > 0 else -2.0
+
         # ── CV-Sharpe  (primary stability signal) ─────────────────────────
         # = avg_sharpe / (1 + std_sharpe)
         # A strategy with mean=1.0, std=0.1 scores 0.91.
         # A strategy with mean=1.0, std=1.5 scores 0.40.
         # Consistency is rewarded continuously, not via a binary penalty.
         cv_sharpe = avg_sharpe / (1.0 + std_sharpe)
+        robust_sharpe = avg_sharpe - 0.50 * std_sharpe
 
         # ── Fold consistency bonus ────────────────────────────────────────
         # Explicit reward for strategies where EVERY fold is profitable.
@@ -457,6 +455,8 @@ class diagnosis:
             return -5.0 - 10.0 * (0.35 - pct_profit) / 0.35
         if cv_sharpe < -0.5:
             return -4.0 + 3.0 * (cv_sharpe + 0.5)
+        if robust_sharpe < -0.25:
+            return -3.5 + 2.0 * (robust_sharpe + 0.25)
         if avg_stop_rate > 0.55:
             return -3.0 - 5.0 * (avg_stop_rate - 0.55)
         if avg_ts_rate > 0.50:
@@ -472,6 +472,7 @@ class diagnosis:
         util_pen       = -2.0 * max(0.0, 0.12 - avg_util)
         short_stop_pen = -1.5 * max(0.0, avg_short_stop - 0.20)
         wr_gap_pen     = -0.8 * max(0.0, avg_long_wr - avg_short_wr - 0.25)
+        tail_pen       = -1.2 * max(0.0, 0.20 - p20_sharpe)
         dir_pen        = short_stop_pen + wr_gap_pen
 
         # ── Score components  (documented contribution ranges) ────────────
@@ -489,7 +490,8 @@ class diagnosis:
         # Penalties + reg can remove up to ≈ -4.0.
         # Maximum realistic score ≈ 20.  Minimum before floors ≈ -8.
 
-        cv_sharpe_score = float(np.clip(cv_sharpe, -2.0, 3.0)) * 2.5
+        cv_sharpe_score = float(np.clip(cv_sharpe, -2.0, 3.0)) * 2.3
+        robust_sharpe_score = float(np.clip(robust_sharpe, -2.0, 3.0)) * 0.8
 
         # Calmar: pessimistic = mean - 0.4*std (capped to avoid std dominance)
         calmar_adj   = float(np.clip(
@@ -504,7 +506,7 @@ class diagnosis:
         # Return: annualised (length-neutral), log-compressed
         ret_score = float(np.clip(
             np.log1p(np.clip(avg_ann_ret * 5.0, -0.99, 12.0)),
-            -1.0, 2.5)) * 1.5
+            -1.0, 2.5)) * 1.3
 
         dir_bal_score = float(np.clip(avg_dir_bal, 0.0, 1.0)) * 1.0
 
@@ -513,6 +515,7 @@ class diagnosis:
 
         score = (
             cv_sharpe_score
+            + robust_sharpe_score
             + calmar_score
             + sortino_score
             + pf_score
@@ -526,6 +529,7 @@ class diagnosis:
             + stop_pen
             + util_pen
             + dir_pen
+            + tail_pen
             # Regularisation
             + reg
         )
@@ -659,17 +663,10 @@ class diagnosis:
         print(f"\n  Stable params : {stable_n} / {total_n}")
         print(f"  {verdict} — {'use consensus' if pct >= 0.4 else 'increase n_trials or check data'}")
 
-        # Derived averages
-        consensus['z_entry'] = (consensus['z_entry_long']  + consensus['z_entry_short'])  / 2
-        consensus['z_exit']  = (consensus['z_exit_long']   + consensus['z_exit_short'])   / 2
         # Keep medium locked to ~1.5x slow_window for consistency with objective.
         if 'slow_window' in consensus:
             consensus['medium_window'] = int(round(consensus['slow_window'] * 1.5))
 
-        # z_stop_* are no longer optimised in the constrained search; only derive
-        # z_stop if they exist in the consensus set.
-        if 'z_stop_long' in consensus and 'z_stop_short' in consensus:
-            consensus['z_stop']  = (consensus['z_stop_long']   + consensus['z_stop_short'])   / 2
 
         print(f"\n  Consensus parameters (median of top params × {len(all_params)} sets):")
         for k, v in consensus.items():

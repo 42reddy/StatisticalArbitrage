@@ -598,7 +598,7 @@ class plotting():
 ║  STRUCTURAL
 ║    Hedge ratio β        : {beta_val:.4f}  (log(NG) − β×log(CL))
 ║    Notional cap         : 200,000  (hard ceiling per trade)
-║    Leverage             : {p.get('leverage', '—')}×
+║    Leverage             : {p.get('leverage', '—')}3x
 ╠{'═'*66}╣
 ║  PARAMETERS  (asymmetric)
 ║    Slow window          : {p['slow_window']:>4}d     Fast EWMA span : {p['fast_span']:>4}
